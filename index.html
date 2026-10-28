@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>agent-floors — one company per floor on Pollinations</title>
+<meta name="description" content="A 3D tower where every floor is a company run by AI agents on Pollinations. People pay with their own Pollen (BYOP).">
+<script src="./pollinations-client.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@pollinations/ui@0.1.0-alpha.20/dist/connect.js"></script>
+<style>
+  :root { --bg:#0a0b10; --panel:#12141d; --line:#232738; --txt:#e8eaf2; --dim:#8b91a7; --acc:#7c5cff; --acc2:#00d4aa; --warn:#ffb84d; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:radial-gradient(ellipse at 50% -10%, #171a2e 0%, var(--bg) 60%); color:var(--txt); font-family:'Segoe UI',system-ui,sans-serif; min-height:100vh; overflow-x:hidden; }
+  header { display:flex; justify-content:space-between; align-items:center; padding:14px 22px; border-bottom:1px solid var(--line); background:rgba(10,11,16,.85); backdrop-filter:blur(8px); position:sticky; top:0; z-index:50; }
+  header h1 { font-size:18px; letter-spacing:1px; } header h1 span { color:var(--acc); }
+  .hbtns { display:flex; gap:8px; align-items:center; }
+  .btn { background:var(--acc); color:#fff; border:0; padding:8px 14px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:600; }
+  .btn.ghost { background:transparent; border:1px solid var(--line); color:var(--txt); }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .keybox { display:flex; gap:6px; align-items:center; }
+  .keybox input { background:var(--panel); border:1px solid var(--line); color:var(--txt); padding:8px 10px; border-radius:8px; width:230px; font-size:12px; }
+  main { display:flex; flex-direction:column; align-items:center; padding:20px; }
+  .scene { perspective:1200px; width:100%; max-width:860px; height:520px; display:flex; align-items:center; justify-content:center; touch-action:pan-y; }
+  .tower { position:relative; width:300px; transform-style:preserve-3d; transition:transform .08s linear; }
+  .floor { position:absolute; width:300px; height:56px; left:0; top:0; transform-style:preserve-3d; }
+  .slab { position:absolute; inset:0; background:linear-gradient(180deg,#191d2c 0%, #12141d 100%); border:1px solid var(--line); border-radius:6px; display:flex; align-items:center; padding:0 14px; gap:12px; cursor:pointer; transform:translateZ(0); box-shadow:0 4px 18px rgba(0,0,0,.45); transition:box-shadow .2s, border-color .2s; }
+  .slab:hover { border-color:var(--acc); box-shadow:0 0 22px rgba(124,92,255,.35); }
+  .slab .fno { font-size:11px; color:var(--dim); width:26px; }
+  .slab .biz { flex:1; } .slab .biz b { font-size:14px; display:block; } .slab .biz i { font-size:11px; color:var(--dim); font-style:normal; }
+  .slab .live { font-size:10px; color:var(--acc2); border:1px solid var(--acc2); padding:2px 7px; border-radius:99px; }
+  .slab.vacant { border-style:dashed; } .slab.vacant .biz b { color:var(--warn); }
+  .ground { margin-top:8px; color:var(--dim); font-size:12px; text-align:center; }
+  .drag-hint { color:var(--dim); font-size:12px; margin-bottom:4px; }
+  /* office view */
+  .overlay { position:fixed; inset:0; background:rgba(5,6,10,.8); backdrop-filter:blur(6px); display:none; align-items:center; justify-content:center; z-index:100; padding:18px; }
+  .overlay.on { display:flex; }
+  .office { background:var(--panel); border:1px solid var(--line); border-radius:14px; width:100%; max-width:640px; max-height:88vh; overflow:auto; padding:24px; }
+  .office h2 { font-size:20px; margin-bottom:4px; } .office .sub { color:var(--dim); font-size:13px; margin-bottom:16px; }
+  .feed { background:#0c0e16; border:1px solid var(--line); border-radius:10px; padding:14px; font-size:13px; line-height:1.65; min-height:120px; white-space:pre-wrap; margin:12px 0; }
+  .feed .t { color:var(--acc2); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  .tag { font-size:11px; color:var(--dim); border:1px solid var(--line); border-radius:99px; padding:3px 10px; }
+  input.fld, textarea.fld { width:100%; background:#0c0e16; border:1px solid var(--line); border-radius:8px; color:var(--txt); padding:10px; font-size:13px; margin:6px 0; }
+  .dir { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:10px; margin-top:14px; }
+  .dcard { background:#0c0e16; border:1px solid var(--line); border-radius:10px; padding:12px; font-size:13px; }
+  .dcard b { display:block; margin-bottom:2px; } .dcard span { color:var(--dim); font-size:12px; }
+  footer { text-align:center; color:var(--dim); font-size:12px; padding:24px; }
+  footer a { color:var(--acc); }
+  .badge { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--txt); border:1px solid var(--line); border-radius:99px; padding:4px 12px; text-decoration:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏢 AGENT FLOORS <span>· AI-run companies</span></h1>
+  <div class="hbtns">
+    <button class="btn ghost" onclick="openDir()">Directory</button>
+    <div class="keybox">
+      <polli-connect app-key="pk_xHr5ulHjWkJlF63Z" budget="5" expiry="7" models="text" hide-buy-pollen></polli-connect>
+    </div>
+  </div>
+</header>
+
+<main>
+  <p class="drag-hint">↔ drag to rotate the tower · click a floor to enter the office</p>
+  <div class="scene" id="scene">
+    <div class="tower" id="tower"></div>
+  </div>
+  <p class="ground">🚪 Lobby — visitors welcome. Every agent below runs on <a href="https://pollinations.ai" style="color:var(--acc)">pollinations.ai</a> and bills the visitor's own Pollen (BYOP).</p>
+</main>
+
+<div class="overlay" id="office" onclick="if(event.target===this)closeOffice()">
+  <div class="office" id="officeBody"></div>
+</div>
+
+<footer>
+  <a class="badge" href="https://pollinations.ai">🌸 Made with pollinations.ai</a> ·
+  Bring your own Pollen — every AI agent here runs on <b>your</b> key, your Pollen. ·
+  <a href="https://github.com/mhmdrizzzki/towers">source</a>
+</footer>
+
+<script>
+// ---------- data ----------
+const DEFAULT_FLOORS = [
+  { name:"Aurora Copy Studio",   tagline:"copywriting & brand voice",   roles:"researcher, writer, editor" },
+  { name:"Hexa Research Lab",    tagline:"market & competitor research", roles:"scout, analyst, reporter" },
+  { name:"Byte Foundry",         tagline:"micro-software & scripts",     roles:"engineer, tester, ops" },
+  { name:"Nova Outreach",        tagline:"cold email & lead gen",        roles:"prospector, sender, tracker" },
+  { name:"Pixel Bloom",          tagline:"image & ad creative",          roles:"artist, art-director" },
+  { name:"Ledger Owls",          tagline:"bookkeeping summaries",        roles:"clerk, auditor" },
+  { name:"Echo Support Desk",    tagline:"customer replies, 24/7",       roles:"agent, escalator" },
+  { name:"Signal Reports",       tagline:"daily intelligence briefs",    roles:"monitor, summarizer" },
+  { name:"——— vacant office ———", tagline:"apply for this floor", roles:"you + your agents", vacant:true },
+];
+let FLOORS = JSON.parse(localStorage.getItem("towers_floors") || "null") || DEFAULT_FLOORS;
+let rotY = -18, dragging = null, lastX = 0;
+
+// ---------- 3D tower ----------
+function buildTower() {
+  const t = document.getElementById("tower");
+  t.innerHTML = "";
+  const n = FLOORS.length, fh = 56, gap = 6;
+  const total = n * (fh + gap);
+  FLOORS.forEach((f, i) => {
+    const fl = document.createElement("div");
+    fl.className = "floor";
+    fl.style.top = (i * (fh + gap)) + "px";
+    const slab = document.createElement("div");
+    slab.className = "slab" + (f.vacant ? " vacant" : "");
+    slab.innerHTML = `<span class="fno">F${i+1}</span><span class="biz"><b>${f.name}</b><i>${f.tagline}</i></span>` + (f.vacant ? "" : `<span class="live">● agent</span>`);
+    slab.onclick = () => openOffice(i);
+    fl.appendChild(slab);
+    t.appendChild(fl);
+  });
+  t.style.height = total + "px";
+  applyRot();
+  const scene = document.getElementById("scene");
+  scene.style.height = Math.max(total + 60, 420) + "px";
+}
+function applyRot() {
+  document.getElementById("tower").style.transform = `rotateX(12deg) rotateY(${rotY}deg)`;
+}
+document.getElementById("scene").addEventListener("pointerdown", e => { dragging = true; lastX = e.clientX; });
+window.addEventListener("pointermove", e => { if (!dragging) return; rotY += (e.clientX - lastX) * 0.4; lastX = e.clientX; applyRot(); });
+window.addEventListener("pointerup", () => dragging = false);
+
+// ---------- key ----------
+// BYOP via <polli-connect>: scoped key from the Pollinations consent screen.
+const connectEl = document.querySelector("polli-connect");
+function getKey() {
+  return (connectEl && connectEl.apiKey) || sessionStorage.getItem("polli_byop_key") || "";
+}
+if (connectEl) connectEl.addEventListener("change", () => console.log("BYOP key:", connectEl.apiKey ? "active" : "none"));
+
+// ---------- office ----------
+function openOffice(i) {
+  const f = FLOORS[i];
+  const body = document.getElementById("officeBody");
+  if (f.vacant) return renderRent(i);
+  const logs = JSON.parse(localStorage.getItem("towers_logs_" + i) || "[]");
+  body.innerHTML = `
+    <h2>Floor ${i+1} — ${f.name}</h2>
+    <p class="sub">${f.tagline} · staff: ${f.roles}</p>
+    <div class="row"><span class="tag">🤖 agents: managed Pollinations agents (/account/agents)</span><span class="tag">💸 run on YOUR pollen (BYOP)</span><span class="tag" id="agentState"></span></div>
+    <div class="feed" id="feed">${logs.slice(-3).map(l => `<div>${l}</div><hr style="border-color:var(--line);opacity:.3">`).join("") || "No daily reports yet. Run the morning stand-up — the agents do today's work and bring you the results."}</div>
+    <div class="row">
+      <button class="btn" id="runBtn" onclick="runAgents(${i})">▶ Run today's agent shift</button>
+      <button class="btn ghost" onclick="closeOffice()">Close</button>
+    </div>`;
+  document.getElementById("office").classList.add("on");
+}
+function closeOffice() { document.getElementById("office").classList.remove("on"); }
+
+async function runAgents(i) {
+  const f = FLOORS[i];
+  const btn = document.getElementById("runBtn"), feed = document.getElementById("feed");
+  if (!getKey()) { feed.textContent = "⚠ Connect your Pollinations API key first (top right) — agents bill your own Pollen."; return; }
+  btn.disabled = true; btn.textContent = "⏳ agents working…";
+  feed.textContent = "";
+  try {
+    let agent = JSON.parse(localStorage.getItem("towers_agent_" + i) || "null");
+    if (!agent) { agent = await hireAgent(i); }
+    // Run the shift THROUGH the Pollinations agent (callable model on the caller's Pollen)
+    const res = await fetch("https://gen.pollinations.ai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + getKey() },
+      body: JSON.stringify({
+        model: agent.model,
+        messages: [{ role: "user", content: "Write today's 3-line shift report: what the agents did, one result, one decision needed from the human owner. Concise." }],
+        max_tokens: 220,
+      }),
+    });
+    if (!res.ok) {
+      let d = ""; try { d = (await res.json()).error?.message || ""; } catch (e) {}
+      throw new Error("Agent error " + res.status + " " + d);
+    }
+    const out = ((await res.json()).choices?.[0]?.message?.content || "").trim();
+    const ts = new Date().toLocaleString();
+    const logs = JSON.parse(localStorage.getItem("towers_logs_" + i) || "[]");
+    logs.push(`<span class="t">[${ts}] shift via ${agent.model}</span>\n${out.replace(/</g,"&lt;")}`);
+    localStorage.setItem("towers_logs_" + i, JSON.stringify(logs.slice(-6)));
+    feed.innerHTML = logs.slice(-3).map(l => `<div>${l}</div><hr style="border-color:var(--line);opacity:.3">`).join("");
+  } catch (e) {
+    feed.textContent = "⚠ " + e.message;
+  }
+  btn.disabled = false; btn.textContent = "▶ Run today's agent shift";
+}
+
+async function hireAgent(i) {
+  const f = FLOORS[i];
+  const slug = ("towers-" + f.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")).slice(0, 100);
+  const res = await fetch("https://gen.pollinations.ai/account/agents", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + getKey() },
+    body: JSON.stringify({
+      name: slug,
+      title: (f.name + " agents").slice(0, 42),
+      description: "Daily-work agent team for floor " + (i+1) + " of the Towers building (AI-run companies).",
+      systemPrompt: `You are the agent team of the company "${f.name}" (${f.tagline}), located on floor ${i+1} of a tower of AI-run companies. Staff roles: ${f.roles}. You do the daily work, keep it concise, and always end with one decision needed from the human owner.`,
+      baseModel: "deepseek/deepseek-v4-flash",
+    }),
+  });
+  if (!res.ok) {
+    let d = ""; try { d = (await res.json()).error?.message || ""; } catch (e) {}
+    throw new Error("Hire failed " + res.status + " " + d);
+  }
+  const a = await res.json();
+  localStorage.setItem("towers_agent_" + i, JSON.stringify(a));
+  return a;
+}
+
+// ---------- rent ----------
+function renderRent(i) {
+  const body = document.getElementById("officeBody");
+  body.innerHTML = `
+    <h2>🏢 Vacant office — Floor ${i+1}</h2>
+    <p class="sub">Apply to rent. Bring your own agents — they run on Pollinations, you pay with your own Pollen.</p>
+    <input class="fld" id="rCompany" placeholder="Company name">
+    <input class="fld" id="rTag" placeholder="What does it do?">
+    <input class="fld" id="rRoles" placeholder="Agent roles (e.g. scout, writer, sender)">
+    <div class="row"><button class="btn" onclick="applyRent(${i})">📩 Apply</button><button class="btn ghost" onclick="closeOffice()">Close</button></div>`;
+  document.getElementById("office").classList.add("on");
+}
+function applyRent(i) {
+  const name = document.getElementById("rCompany").value.trim();
+  if (!name) return alert("Company name required");
+  FLOORS[i] = { name, tagline: document.getElementById("rTag").value.trim() || "new business", roles: document.getElementById("rRoles").value.trim() || "founder agent", };
+  localStorage.setItem("towers_floors", JSON.stringify(FLOORS));
+  buildTower(); closeOffice();
+}
+
+// ---------- directory ----------
+function openDir() {
+  const body = document.getElementById("officeBody");
+  body.innerHTML = `<h2>🏢 Tower directory</h2><p class="sub">${FLOORS.filter(f=>!f.vacant).length} companies · every floor runs agents on Pollinations</p>
+  <div class="dir">${FLOORS.map((f,i)=>`<div class="dcard" style="cursor:${f.vacant?"pointer":"default"}" ${f.vacant?`onclick="closeOffice();openOffice(${i})"`:""}><b>F${i+1} · ${f.name}</b><span>${f.tagline}${f.vacant?" — apply for this floor":""}</span></div>`).join("")}</div>
+  <div class="row" style="margin-top:14px"><button class="btn ghost" onclick="closeOffice()">Close</button></div>`;
+  document.getElementById("office").classList.add("on");
+}
+
+buildTower();
+</script>
+</body>
+</html>
